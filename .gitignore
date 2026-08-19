@@ -6,8 +6,9 @@ obj/
 .vs/
 *.DS_Store
 
-## Published output in installer folder
-installer/
+## Published output and installer artifacts (build outputs, not source)
+publish/
+installer/output/
 
 ## Local user settings
 *.csproj.user
