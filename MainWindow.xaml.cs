@@ -69,9 +69,13 @@ public partial class MainWindow : Window
     private double _threadThickness = 3.0; // local (un-zoomed) pixels; user-adjustable via ThreadThicknessSlider
 
     // ---- Tool mode ----
-    private enum DrawTool { Draw, Segment }
+    private enum DrawTool { Draw, Segment, Freeform }
     private DrawTool _drawTool = DrawTool.Draw;
     private bool _isSelectMode = false;
+
+    // ---- Freeform pen state ----
+    private HoleIndex _freeformLastHole;
+    private readonly List<(HoleIndex A, HoleIndex B, Color C)> _freeformThreads = new();
 
     // ---- Select tool: rubber-band state ----
     private bool _isSelecting = false;
@@ -115,9 +119,14 @@ public partial class MainWindow : Window
     private const double MaxZoom = 8.0;
 
     // ---- Clipboard (copy/paste) ----
-    private sealed record ClipThread(int dI_A, int dJ_A, int dI_B, int dJ_B, Color Color);
+    // Pixel offsets relative to copy-center so parity-row stagger is handled correctly on paste.
+    private sealed record ClipThread(double dX_A, double dY_A, double dX_B, double dY_B, Color Color);
     private List<ClipThread>? _clipboard;
     private HoleIndex _clipboardCenter;
+
+    // ---- Float-paste state ----
+    private bool _isPasting = false;
+    private HoleIndex _pasteHoverCenter;
 
     // ---- Undo / redo history (covers thread add/remove and Clear All Threads) ----
     private sealed record UndoableAction(Action Undo, Action Redo);
@@ -484,6 +493,7 @@ public partial class MainWindow : Window
         if (_touchCount >= 2) return; // two-finger gesture active; ignore promoted mouse events
         Point local = e.GetPosition(RootCanvas);
 
+        if (_isPasting) { CommitPaste(local); return; }   // float-paste: click commits
         if (_isSelectMode) { HandleSelectPress(local); return; }
 
         double holeSnap = _lattice.Spacing * 0.4;
@@ -491,10 +501,19 @@ public partial class MainWindow : Window
         {
             _isDrawing = true;
             _dragStart = hole;
-            var p = _lattice.Position(hole);
-            _previewLine.X1 = p.X; _previewLine.Y1 = p.Y;
-            _previewLine.X2 = p.X; _previewLine.Y2 = p.Y;
-            _previewLine.Visibility = Visibility.Visible;
+            if (_drawTool == DrawTool.Freeform)
+            {
+                _freeformLastHole = hole;
+                _freeformThreads.Clear();
+                _suppressHoleFillRedraw = true;
+            }
+            else
+            {
+                var p = _lattice.Position(hole);
+                _previewLine.X1 = p.X; _previewLine.Y1 = p.Y;
+                _previewLine.X2 = p.X; _previewLine.Y2 = p.Y;
+                _previewLine.Visibility = Visibility.Visible;
+            }
             RootCanvas.CaptureMouse();
             return;
         }
@@ -518,26 +537,44 @@ public partial class MainWindow : Window
         if (_touchCount >= 2) return;
         Point local = e.GetPosition(RootCanvas);
 
+        if (_isPasting) { HandlePasteCursor(local); return; }  // float-paste: update ghost
         if (_isSelectMode) { HandleSelectDrag(local); return; }
 
         double holeSnap = _lattice.Spacing * 0.4;
 
         if (_isDrawing)
         {
-            _previewLine.X2 = local.X;
-            _previewLine.Y2 = local.Y;
-
-            var startPx = _lattice.Position(_dragStart);
-            double ex = local.X, ey = local.Y;
-            if (_lattice.TryFindNearestHole(local, holeSnap, out var snapHole) && !snapHole.Equals(_dragStart))
+            if (_drawTool == DrawTool.Freeform)
             {
-                var snapPx = _lattice.Position(snapHole);
-                ex = snapPx.X; ey = snapPx.Y;
+                double freeSnap = _lattice.Spacing * 0.5;
+                if (_lattice.TryFindNearestHole(local, freeSnap, out var nearHole) && !nearHole.Equals(_freeformLastHole))
+                {
+                    var key = ThreadLine.Key(_freeformLastHole, nearHole);
+                    if (!_lines.ContainsKey(key))
+                    {
+                        AddThreadInternal(_freeformLastHole, nearHole, _currentColor);
+                        _freeformThreads.Add((_freeformLastHole, nearHole, _currentColor));
+                    }
+                    _freeformLastHole = nearHole;
+                }
             }
-            double dx = ex - startPx.X, dy = ey - startPx.Y;
-            double len = Math.Sqrt(dx * dx + dy * dy);
-            double s = _lattice.Spacing;
-            SetStatus($"Length: {len / s:0.0}u   Δx: {dx / s:0.0}u   Δy: {dy / s:0.0}u");
+            else
+            {
+                _previewLine.X2 = local.X;
+                _previewLine.Y2 = local.Y;
+
+                var startPx = _lattice.Position(_dragStart);
+                double ex = local.X, ey = local.Y;
+                if (_lattice.TryFindNearestHole(local, holeSnap, out var snapHole) && !snapHole.Equals(_dragStart))
+                {
+                    var snapPx = _lattice.Position(snapHole);
+                    ex = snapPx.X; ey = snapPx.Y;
+                }
+                double dx = ex - startPx.X, dy = ey - startPx.Y;
+                double len = Math.Sqrt(dx * dx + dy * dy);
+                double s = _lattice.Dx; // 1u = horizontal/vertical neighbor distance (= Spacing*√2)
+                SetStatus($"Length: {len / s:0.0}u   Δx: {dx / s:0.0}u   Δy: {dy / s:0.0}u");
+            }
         }
 
         if (_lattice.TryFindNearestHole(local, holeSnap, out var hole))
@@ -559,12 +596,42 @@ public partial class MainWindow : Window
         if (_touchCount >= 2) return;
         Point local = e.GetPosition(RootCanvas);
 
+        if (_isPasting) return;  // click-to-commit handled on MouseDown
         if (_isSelectMode) { HandleSelectRelease(local); return; }
 
         if (!_isDrawing) return;
         _isDrawing = false;
-        _previewLine.Visibility = Visibility.Collapsed;
         RootCanvas.ReleaseMouseCapture();
+
+        if (_drawTool == DrawTool.Freeform)
+        {
+            _suppressHoleFillRedraw = false;
+            RedrawAllHoleFills();
+            if (_freeformThreads.Count > 0)
+            {
+                var strokes = _freeformThreads.ToList();
+                _freeformThreads.Clear();
+                PushUndo(
+                    undo: () => {
+                        _suppressHoleFillRedraw = true;
+                        try { foreach (var (a, b, _) in strokes) RemoveThreadInternal(ThreadLine.Key(a, b)); }
+                        finally { _suppressHoleFillRedraw = false; RedrawAllHoleFills(); }
+                        UpdateLegend(); AutoSave();
+                    },
+                    redo: () => {
+                        _suppressHoleFillRedraw = true;
+                        try { foreach (var (a, b, c) in strokes) AddThreadInternal(a, b, c); }
+                        finally { _suppressHoleFillRedraw = false; RedrawAllHoleFills(); }
+                        UpdateLegend(); AutoSave();
+                    });
+                UpdateLegend();
+                AutoSave();
+                SetStatus($"Freeform: {strokes.Count} segment(s). Ctrl+Z to undo.");
+            }
+            return;
+        }
+
+        _previewLine.Visibility = Visibility.Collapsed;
 
         double holeSnap = _lattice.Spacing * 0.4;
         if (_lattice.TryFindNearestHole(local, holeSnap, out var hole) && !hole.Equals(_dragStart))
@@ -661,7 +728,7 @@ public partial class MainWindow : Window
         _drawTool = DrawTool.Draw;
         DrawModeButton.IsChecked = true;
         SegmentModeButton.IsChecked = false;
-        // Switching away from select if active
+        FreeformModeButton.IsChecked = false;
         if (_isSelectMode) { ClearSelection(); _isSelectMode = false; SelectModeButton.IsChecked = false; }
         ViewportBorder.Cursor = null;
         ToolHintText.Text = "Draw: drag between holes to stitch.  Click thread to remove.  Right-drag or two-finger: pan.";
@@ -672,9 +739,21 @@ public partial class MainWindow : Window
         _drawTool = DrawTool.Segment;
         SegmentModeButton.IsChecked = true;
         DrawModeButton.IsChecked = false;
+        FreeformModeButton.IsChecked = false;
         if (_isSelectMode) { ClearSelection(); _isSelectMode = false; SelectModeButton.IsChecked = false; }
         ViewportBorder.Cursor = null;
         ToolHintText.Text = "Segment: drag across holes — line auto-splits where it crosses any hole.";
+    }
+
+    private void FreeformModeButton_Click(object sender, RoutedEventArgs e)
+    {
+        _drawTool = DrawTool.Freeform;
+        FreeformModeButton.IsChecked = true;
+        DrawModeButton.IsChecked = false;
+        SegmentModeButton.IsChecked = false;
+        if (_isSelectMode) { ClearSelection(); _isSelectMode = false; SelectModeButton.IsChecked = false; }
+        ViewportBorder.Cursor = null;
+        ToolHintText.Text = "Freeform: hold and drag across holes to draw connected segments.";
     }
 
     private void SelectModeButton_Click(object sender, RoutedEventArgs e)
@@ -684,6 +763,7 @@ public partial class MainWindow : Window
         {
             DrawModeButton.IsChecked = false;
             SegmentModeButton.IsChecked = false;
+            FreeformModeButton.IsChecked = false;
             // Cancel any in-progress draw
             _isDrawing = false;
             _previewLine.Visibility = Visibility.Collapsed;
@@ -696,9 +776,9 @@ public partial class MainWindow : Window
         {
             ClearSelection();
             ViewportBorder.Cursor = null;
-            // Restore whichever draw tool was last active
             DrawModeButton.IsChecked = (_drawTool == DrawTool.Draw);
             SegmentModeButton.IsChecked = (_drawTool == DrawTool.Segment);
+            FreeformModeButton.IsChecked = (_drawTool == DrawTool.Freeform);
             ToolHintText.Text = "Draw: drag between holes to stitch.  Segment: auto-splits at crossed holes.  Select: rubber-band.";
             UpdateDeleteButton();
         }
@@ -719,6 +799,16 @@ public partial class MainWindow : Window
     protected override void OnKeyDown(System.Windows.Input.KeyEventArgs e)
     {
         base.OnKeyDown(e);
+        if (_isPasting && e.Key == System.Windows.Input.Key.Escape)
+        {
+            _isPasting = false;
+            UpdatePasteGhost();
+            ViewportBorder.Cursor = System.Windows.Input.Cursors.Cross;
+            SetStatus("Paste cancelled.");
+            e.Handled = true;
+            return;
+        }
+
         if (_isSelectMode)
         {
             if (e.Key == System.Windows.Input.Key.Escape)
@@ -918,12 +1008,15 @@ public partial class MainWindow : Window
         _lattice.TryFindNearestHole(_lattice.Position((int)Math.Round(avgI), (int)Math.Round(avgJ)),
             double.MaxValue, out _clipboardCenter);
 
+        var centerPx = _lattice.Position(_clipboardCenter);
         _clipboard = _selectedKeys
             .Where(k => _lines.ContainsKey(k))
             .Select(k => {
                 var t = _lines[k];
-                return new ClipThread(t.A.I - _clipboardCenter.I, t.A.J - _clipboardCenter.J,
-                                      t.B.I - _clipboardCenter.I, t.B.J - _clipboardCenter.J, t.Color);
+                var pA = _lattice.Position(t.A);
+                var pB = _lattice.Position(t.B);
+                return new ClipThread(pA.X - centerPx.X, pA.Y - centerPx.Y,
+                                      pB.X - centerPx.X, pB.Y - centerPx.Y, t.Color);
             })
             .ToList();
 
@@ -931,31 +1024,81 @@ public partial class MainWindow : Window
         SetStatus($"Copied {_clipboard.Count} thread(s). Ctrl+V to paste.");
     }
 
+    // Enters float-paste mode: ghost follows cursor until click commits (or Esc cancels).
     private void PasteSelection()
     {
         if (_clipboard == null || _clipboard.Count == 0) return;
 
-        // Paste centered on the current view
-        double cx = (ViewportBorder.ActualWidth  / 2 - TranslateT.X) / ScaleT.ScaleX;
-        double cy = (ViewportBorder.ActualHeight / 2 - TranslateT.Y) / ScaleT.ScaleY;
-        _lattice.TryFindNearestHole(new Point(cx, cy), double.MaxValue, out var pasteCenter);
-
-        var toAdd = new List<(HoleIndex A, HoleIndex B, Color C)>();
-        foreach (var entry in _clipboard)
+        // Ensure select mode is active (paste works in select context)
+        if (!_isSelectMode)
         {
-            var a = new HoleIndex(pasteCenter.I + entry.dI_A, pasteCenter.J + entry.dJ_A);
-            var b = new HoleIndex(pasteCenter.I + entry.dI_B, pasteCenter.J + entry.dJ_B);
-            if (!_lattice.InBounds(a) || !_lattice.InBounds(b)) continue;
-            var key = ThreadLine.Key(a, b);
-            if (!_lines.ContainsKey(key)) toAdd.Add((a, b, entry.Color));
+            _isSelectMode = true;
+            SelectModeButton.IsChecked = true;
+            DrawModeButton.IsChecked = false;
+            SegmentModeButton.IsChecked = false;
+            ViewportBorder.Cursor = System.Windows.Input.Cursors.Cross;
         }
 
-        if (toAdd.Count == 0) { SetStatus("Nothing to paste (all out of bounds or already exists)."); return; }
+        _isPasting = true;
+
+        // Seed the ghost at the current view center
+        double cx = (ViewportBorder.ActualWidth  / 2 - TranslateT.X) / ScaleT.ScaleX;
+        double cy = (ViewportBorder.ActualHeight / 2 - TranslateT.Y) / ScaleT.ScaleY;
+        _lattice.TryFindNearestHole(new Point(cx, cy), double.MaxValue, out _pasteHoverCenter);
+        UpdatePasteGhost();
+        SetStatus($"Floating {_clipboard.Count} thread(s) — click to place, Esc to cancel.");
+    }
+
+    private void HandlePasteCursor(Point local)
+    {
+        _lattice.TryFindNearestHole(local, double.MaxValue, out var center);
+        if (center != _pasteHoverCenter)
+        {
+            _pasteHoverCenter = center;
+            UpdatePasteGhost();
+        }
+    }
+
+    private void CommitPaste(Point local)
+    {
+        if (_clipboard == null) { _isPasting = false; return; }
+
+        _lattice.TryFindNearestHole(local, double.MaxValue, out var pasteCenter);
+        _isPasting = false;
+
+        // Remove any conflicting existing threads first, then add all clipboard threads.
+        // (No skipping — every entry in the clipboard is placed, overwriting conflicts.)
+        var toRemove = new List<(HoleIndex A, HoleIndex B, Color C)>();
+        var toAdd    = new List<(HoleIndex A, HoleIndex B, Color C)>();
+
+        var pasteCenterPx = _lattice.Position(pasteCenter);
+        foreach (var entry in _clipboard)
+        {
+            var rawA = new Point(pasteCenterPx.X + entry.dX_A, pasteCenterPx.Y + entry.dY_A);
+            var rawB = new Point(pasteCenterPx.X + entry.dX_B, pasteCenterPx.Y + entry.dY_B);
+            if (!_lattice.TryFindNearestHole(rawA, _lattice.Spacing * 0.6, out var a)) continue;
+            if (!_lattice.TryFindNearestHole(rawB, _lattice.Spacing * 0.6, out var b)) continue;
+            if (a == b) continue;
+            var key = ThreadLine.Key(a, b);
+            if (_lines.TryGetValue(key, out var existing)) toRemove.Add((existing.A, existing.B, existing.Color));
+            toAdd.Add((a, b, entry.Color));
+        }
+
+        if (toAdd.Count == 0)
+        {
+            UpdatePasteGhost(); // clears ghost
+            SetStatus("Nothing to paste (all out of bounds).");
+            return;
+        }
 
         void Do()
         {
             _suppressHoleFillRedraw = true;
-            try { foreach (var (a, b, c) in toAdd) AddThreadInternal(a, b, c); }
+            try
+            {
+                foreach (var (a, b, _) in toRemove) RemoveThreadInternal(ThreadLine.Key(a, b));
+                foreach (var (a, b, c) in toAdd)    AddThreadInternal(a, b, c);
+            }
             finally { _suppressHoleFillRedraw = false; RedrawAllHoleFills(); }
             _selectedKeys.Clear();
             foreach (var (a, b, _) in toAdd) _selectedKeys.Add(ThreadLine.Key(a, b));
@@ -966,7 +1109,11 @@ public partial class MainWindow : Window
         void Undo()
         {
             _suppressHoleFillRedraw = true;
-            try { foreach (var (a, b, _) in toAdd) RemoveThreadInternal(ThreadLine.Key(a, b)); }
+            try
+            {
+                foreach (var (a, b, _) in toAdd)    RemoveThreadInternal(ThreadLine.Key(a, b));
+                foreach (var (a, b, c) in toRemove) AddThreadInternal(a, b, c);
+            }
             finally { _suppressHoleFillRedraw = false; RedrawAllHoleFills(); }
             _selectedKeys.Clear();
             UpdateSelectionVisuals();
@@ -976,7 +1123,37 @@ public partial class MainWindow : Window
 
         Do();
         PushUndo(undo: Undo, redo: Do);
+        UpdatePasteGhost(); // clear ghost now that paste is committed
         SetStatus($"Pasted {toAdd.Count} thread(s). Ctrl+Z to undo.");
+    }
+
+    // Draws (or clears) the paste ghost in _selectionLayer.
+    private void UpdatePasteGhost()
+    {
+        // Rebuild selection layer with highlights + ghost on top
+        UpdateSelectionVisuals();
+        if (!_isPasting || _clipboard == null) return;
+
+        var ghostCenterPx = _lattice.Position(_pasteHoverCenter);
+        foreach (var entry in _clipboard)
+        {
+            var rawA = new Point(ghostCenterPx.X + entry.dX_A, ghostCenterPx.Y + entry.dY_A);
+            var rawB = new Point(ghostCenterPx.X + entry.dX_B, ghostCenterPx.Y + entry.dY_B);
+            if (!_lattice.TryFindNearestHole(rawA, _lattice.Spacing * 0.6, out var a)) continue;
+            if (!_lattice.TryFindNearestHole(rawB, _lattice.Spacing * 0.6, out var b)) continue;
+            if (a == b) continue;
+            var pa = _lattice.Position(a);
+            var pb = _lattice.Position(b);
+            _selectionLayer.Children.Add(new Line
+            {
+                X1 = pa.X, Y1 = pa.Y, X2 = pb.X, Y2 = pb.Y,
+                Stroke = new SolidColorBrush(Color.FromArgb(180, entry.Color.R, entry.Color.G, entry.Color.B)),
+                StrokeThickness = _threadThickness,
+                IsHitTestVisible = false,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round
+            });
+        }
     }
 
     private void RotateSelection(int quarterTurns)
@@ -1368,10 +1545,11 @@ public partial class MainWindow : Window
 
         if (_touchCount == 2)
         {
-            // Second finger arrived — cancel any in-progress draw/select gesture
+            // Second finger arrived — cancel any in-progress draw/select/paste gesture
             if (_isDrawing) { _isDrawing = false; _previewLine.Visibility = Visibility.Collapsed; RootCanvas.ReleaseMouseCapture(); }
             if (_isSelecting) { _isSelecting = false; _rubberBand.Visibility = Visibility.Collapsed; RootCanvas.ReleaseMouseCapture(); }
             if (_isMovingSelection) { _isMovingSelection = false; _moveHoleMapping.Clear(); UpdateSelectionVisuals(); RootCanvas.ReleaseMouseCapture(); }
+            if (_isPasting) { _isPasting = false; UpdatePasteGhost(); }
             RefreshTouchReference();
             e.Handled = true; // suppress mouse events while two fingers are down
         }

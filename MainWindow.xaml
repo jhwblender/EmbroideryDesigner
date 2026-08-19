@@ -83,8 +83,10 @@
                 <TextBlock Text="Tool:" VerticalAlignment="Center" Margin="0,0,8,0" FontWeight="Bold"/>
                 <ToggleButton x:Name="DrawModeButton" Content="✏ Draw" IsChecked="True" Padding="10,3" Margin="0,0,4,0"
                               Click="DrawModeButton_Click"/>
-                <ToggleButton x:Name="SegmentModeButton" Content="✂ Segment" Padding="10,3" Margin="0,0,12,0"
+                <ToggleButton x:Name="SegmentModeButton" Content="✂ Segment" Padding="10,3" Margin="0,0,4,0"
                               Click="SegmentModeButton_Click"/>
+                <ToggleButton x:Name="FreeformModeButton" Content="✍ Freeform" Padding="10,3" Margin="0,0,12,0"
+                              Click="FreeformModeButton_Click"/>
                 <Separator Margin="0,0,12,0"/>
                 <ToggleButton x:Name="SelectModeButton" Content="☐  Select" Padding="10,3" Margin="0,0,6,0"
                               Click="SelectModeButton_Click"/>
@@ -98,7 +100,7 @@
                         IsEnabled="False" Click="RotateCwButton_Click"/>
                 <Separator Margin="0,0,8,0"/>
                 <TextBlock x:Name="ToolHintText" VerticalAlignment="Center" FontStyle="Italic" Foreground="#555"
-                           Text="Draw: drag between holes to stitch.  Segment: drag to auto-split at intermediate holes.  Select: rubber-band to select &amp; move."/>
+                           Text="Draw: drag between holes to stitch.  Segment: auto-splits at crossed holes.  Freeform: drag across holes to draw continuously.  Select: rubber-band."/>
             </StackPanel>
         </Border>
 
