@@ -1177,7 +1177,12 @@ public partial class MainWindow : Window
         if (quarterTurns == 0) return;
 
         var bounds = GetSelectionBounds();
-        var centerPx = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
+        var bboxCenter = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
+        // Snap center to nearest lattice symmetry point (multiples of _dy in both axes)
+        // so that 90° rotation maps every hole exactly onto another valid hole.
+        double half = _lattice.Dy;
+        var centerPx = new Point(Math.Round(bboxCenter.X / half) * half,
+                                 Math.Round(bboxCenter.Y / half) * half);
         var latBounds = _lattice.ComputeBounds();
 
         var mapping = new Dictionary<HoleIndex, HoleIndex>();
@@ -1201,7 +1206,9 @@ public partial class MainWindow : Window
                 return (OldA: t.A, OldB: t.B, Color: t.Color,
                         NewA: mapping.GetValueOrDefault(t.A, t.A),
                         NewB: mapping.GetValueOrDefault(t.B, t.B)); })
+            .Where(m => m.NewA != m.NewB) // skip threads that collapsed after boundary clamping
             .ToList();
+        if (moves.Count == 0) return;
 
         void Do()
         {
@@ -1251,7 +1258,11 @@ public partial class MainWindow : Window
         if (_selectedKeys.Count == 0) return;
 
         var bounds = GetSelectionBounds();
-        var centerPx = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
+        var bboxCenter = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
+        // Snap mirror axis to nearest lattice symmetry position so the flip maps holes to holes.
+        double half = _lattice.Dy;
+        var centerPx = new Point(Math.Round(bboxCenter.X / half) * half,
+                                 Math.Round(bboxCenter.Y / half) * half);
         var latBounds = _lattice.ComputeBounds();
 
         var mapping = new Dictionary<HoleIndex, HoleIndex>();
