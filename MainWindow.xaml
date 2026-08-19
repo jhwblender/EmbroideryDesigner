@@ -1,0 +1,178 @@
+<Window x:Class="EmbroideryDesigner.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Embroidery Designer" Height="800" Width="1200"
+        Icon="Assets/AppIcon.ico"
+        WindowStartupLocation="CenterScreen">
+    <Window.CommandBindings>
+        <CommandBinding Command="Undo"  Executed="UndoCommand_Executed"  CanExecute="UndoCommand_CanExecute"/>
+        <CommandBinding Command="Redo"  Executed="RedoCommand_Executed"  CanExecute="RedoCommand_CanExecute"/>
+        <CommandBinding Command="Save"  Executed="SaveCommand_Executed"/>
+        <CommandBinding Command="Copy"  Executed="CopyCommand_Executed"  CanExecute="CopyCommand_CanExecute"/>
+        <CommandBinding Command="Paste" Executed="PasteCommand_Executed" CanExecute="PasteCommand_CanExecute"/>
+    </Window.CommandBindings>
+    <Window.InputBindings>
+        <!-- Undo already defaults to Ctrl+Z and Redo to Ctrl+Y; Ctrl+Shift+Z is added as a common alternate for Redo. -->
+        <KeyBinding Key="Z" Modifiers="Control+Shift" Command="Redo"/>
+        <KeyBinding Key="S" Modifiers="Control" Command="Save"/>
+    </Window.InputBindings>
+    <DockPanel LastChildFill="True">
+
+        <!-- ===================== MENU ===================== -->
+        <Menu DockPanel.Dock="Top" Background="#FFEDEDED">
+            <MenuItem Header="_File">
+                <MenuItem Header="_New" Click="NewButton_Click"/>
+                <MenuItem Header="_Open..." Click="OpenButton_Click"/>
+                <MenuItem Header="_Save" Command="Save"/>
+                <MenuItem Header="Save _As..." Click="SaveButton_Click"/>
+                <Separator/>
+                <MenuItem Header="_Export PNG..." Click="ExportPngButton_Click"/>
+            </MenuItem>
+            <MenuItem Header="_Edit">
+                <MenuItem Header="_Undo" Command="Undo"/>
+                <MenuItem Header="_Redo" Command="Redo"/>
+                <Separator/>
+                <MenuItem Header="_Clear All Threads" Click="ClearThreadsButton_Click"/>
+            </MenuItem>
+            <MenuItem Header="_View">
+                <MenuItem Header="_Reset View" Click="ResetViewButton_Click"/>
+                <Separator/>
+                <MenuItem Header="_Background Color..." Click="BackgroundColorButton_Click"/>
+                <MenuItem Header="_Hole Outline Color..." Click="HoleOutlineColorButton_Click"/>
+            </MenuItem>
+        </Menu>
+
+        <!-- ===================== GRID / HOLE SETTINGS ===================== -->
+        <Border DockPanel.Dock="Top" BorderBrush="#CCC" BorderThickness="0,0,0,1" Background="#F3F3F3" Padding="6,4">
+            <WrapPanel Orientation="Horizontal">
+                <TextBlock Text="Columns:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                <TextBox x:Name="ColsBox" Width="45" Text="30" VerticalContentAlignment="Center"/>
+                <TextBlock Text="Rows:" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                <TextBox x:Name="RowsBox" Width="45" Text="60" VerticalContentAlignment="Center"/>
+                <TextBlock Text="Hole spacing (px):" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                <TextBox x:Name="SpacingBox" Width="45" Text="24" VerticalContentAlignment="Center"/>
+                <Button x:Name="ApplyGridButton" Content="Apply Grid Size" Margin="8,0,0,0" Padding="6,2" Click="ApplyGridButton_Click"/>
+
+                <Separator Margin="12,0"/>
+                <TextBlock Text="Hole size (px):" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                <Slider x:Name="HoleSizeSlider" Width="90" Minimum="2" Maximum="30" Value="6"
+                        TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                        ValueChanged="HoleSizeSlider_ValueChanged"/>
+                <TextBlock x:Name="HoleSizeLabel" Text="6" Width="20" VerticalAlignment="Center" Margin="4,0,0,0"/>
+
+                <Separator Margin="12,0"/>
+                <TextBlock Text="Hole outline (px):" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                <Slider x:Name="HoleOutlineThicknessSlider" Width="90" Minimum="0" Maximum="5" Value="1"
+                        TickFrequency="0.5" IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                        ValueChanged="HoleOutlineThicknessSlider_ValueChanged"/>
+                <TextBlock x:Name="HoleOutlineThicknessLabel" Text="1" Width="24" VerticalAlignment="Center" Margin="4,0,0,0"/>
+
+                <Separator Margin="12,0"/>
+                <TextBlock Text="Thread thickness (px):" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                <Slider x:Name="ThreadThicknessSlider" Width="90" Minimum="0.5" Maximum="15" Value="3"
+                        TickFrequency="0.5" IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                        ValueChanged="ThreadThicknessSlider_ValueChanged"/>
+                <TextBlock x:Name="ThreadThicknessLabel" Text="3" Width="24" VerticalAlignment="Center" Margin="4,0,0,0"/>
+
+            </WrapPanel>
+        </Border>
+
+        <!-- ===================== TOOL MODE ===================== -->
+        <Border DockPanel.Dock="Top" BorderBrush="#CCC" BorderThickness="0,0,0,1" Background="#EBEBEB" Padding="6,4">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Tool:" VerticalAlignment="Center" Margin="0,0,8,0" FontWeight="Bold"/>
+                <ToggleButton x:Name="DrawModeButton" Content="✏ Draw" IsChecked="True" Padding="10,3" Margin="0,0,4,0"
+                              Click="DrawModeButton_Click"/>
+                <ToggleButton x:Name="SegmentModeButton" Content="✂ Segment" Padding="10,3" Margin="0,0,12,0"
+                              Click="SegmentModeButton_Click"/>
+                <Separator Margin="0,0,12,0"/>
+                <ToggleButton x:Name="SelectModeButton" Content="☐  Select" Padding="10,3" Margin="0,0,6,0"
+                              Click="SelectModeButton_Click"/>
+                <Button x:Name="DeleteSelectionButton" Content="🗑 Delete" Padding="8,3" Margin="0,0,4,0"
+                        IsEnabled="False" Click="DeleteSelectionButton_Click"/>
+                <Button x:Name="CopySelectionButton"   Content="⎘ Copy"   Padding="8,3" Margin="0,0,4,0"
+                        IsEnabled="False" Click="CopySelectionButton_Click"/>
+                <Button x:Name="PasteButton"           Content="⎗ Paste"  Padding="8,3" Margin="0,0,4,0"
+                        IsEnabled="False" Click="PasteButton_Click"/>
+                <Button x:Name="RotateCwButton"        Content="↻ 90°"    Padding="8,3" Margin="0,0,12,0"
+                        IsEnabled="False" Click="RotateCwButton_Click"/>
+                <Separator Margin="0,0,8,0"/>
+                <TextBlock x:Name="ToolHintText" VerticalAlignment="Center" FontStyle="Italic" Foreground="#555"
+                           Text="Draw: drag between holes to stitch.  Segment: drag to auto-split at intermediate holes.  Select: rubber-band to select &amp; move."/>
+            </StackPanel>
+        </Border>
+
+        <!-- ===================== COLOR PALETTE ===================== -->
+        <Border DockPanel.Dock="Top" BorderBrush="#CCC" BorderThickness="0,0,0,1" Background="#FAFAFA" Padding="6">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Thread color:" VerticalAlignment="Center" Margin="0,0,8,0" FontWeight="Bold"/>
+                <ItemsControl x:Name="PaletteItems">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+                <Button x:Name="AddColorButton" Content="Add Color..." Margin="10,0,4,0" Padding="6,2" Click="AddColorButton_Click"/>
+                <Button x:Name="RemoveColorButton" Content="Remove Selected" Padding="6,2" Click="RemoveColorButton_Click"/>
+                <Border Width="24" Height="24" Margin="16,0,4,0" BorderBrush="Black" BorderThickness="1">
+                    <Border.Background>
+                        <SolidColorBrush x:Name="CurrentColorSwatchBrush" Color="Black"/>
+                    </Border.Background>
+                </Border>
+                <TextBlock Text="= currently selected color" VerticalAlignment="Center" Foreground="#555"/>
+            </StackPanel>
+        </Border>
+
+        <!-- ===================== STATUS BAR ===================== -->
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="Ready."/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <!-- ===================== LEGEND (RIGHT) ===================== -->
+        <Border DockPanel.Dock="Right" Width="230" BorderBrush="#CCC" BorderThickness="1,0,0,0" Background="#FAFAFA">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Thread Legend" FontWeight="Bold" Margin="8" FontSize="14"/>
+                <ListView x:Name="LegendList" Margin="4" BorderThickness="0" Background="Transparent">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="Color" Width="40">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border Width="18" Height="18" BorderBrush="Black" BorderThickness="1" Background="{Binding Brush}"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="Threads" Width="60" DisplayMemberBinding="{Binding Count}"/>
+                            <GridViewColumn Header="Length" Width="90" DisplayMemberBinding="{Binding TotalLengthDisplay}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+            </DockPanel>
+        </Border>
+
+        <!-- ===================== MAIN CANVAS ===================== -->
+        <Border x:Name="ViewportBorder" Background="Black" ClipToBounds="True"
+                MouseLeftButtonDown="RootCanvas_MouseLeftButtonDown"
+                MouseMove="RootCanvas_MouseMove"
+                MouseLeftButtonUp="RootCanvas_MouseLeftButtonUp"
+                MouseRightButtonDown="ViewportBorder_MouseRightButtonDown"
+                MouseRightButtonUp="ViewportBorder_MouseRightButtonUp"
+                MouseWheel="ViewportBorder_MouseWheel"
+                SizeChanged="ViewportBorder_SizeChanged"
+                TouchDown="ViewportBorder_TouchDown"
+                TouchMove="ViewportBorder_TouchMove"
+                TouchUp="ViewportBorder_TouchUp">
+            <Canvas x:Name="RootCanvas" Background="Transparent" ClipToBounds="False">
+                <Canvas.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="ScaleT" ScaleX="1" ScaleY="1"/>
+                        <TranslateTransform x:Name="TranslateT" X="0" Y="0"/>
+                    </TransformGroup>
+                </Canvas.RenderTransform>
+            </Canvas>
+        </Border>
+    </DockPanel>
+</Window>

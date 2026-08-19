@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <AssemblyName>EmbroideryDesigner</AssemblyName>
+    <RootNamespace>EmbroideryDesigner</RootNamespace>
+    <Version>1.0.0</Version>
+    <Platforms>x64</Platforms>
+    <!-- Disabled: with both UseWPF and UseWindowsForms on, the SDK's implicit
+         usings pull in System.Windows.Forms/System.Drawing alongside WPF's
+         namespaces, making Color/Point/Brush/Application/MouseEventArgs
+         ambiguous. Each file declares exactly the usings it needs instead. -->
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\AppIcon.ico" />
+  </ItemGroup>
+
+</Project>

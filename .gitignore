@@ -1,0 +1,14 @@
+## .NET / WPF
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.DS_Store
+
+## Published output in installer folder
+installer/
+
+## Local user settings
+*.csproj.user
+launchSettings.json
