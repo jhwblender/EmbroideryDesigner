@@ -96,8 +96,12 @@
                         IsEnabled="False" Click="CopySelectionButton_Click"/>
                 <Button x:Name="PasteButton"           Content="⎗ Paste"  Padding="8,3" Margin="0,0,4,0"
                         IsEnabled="False" Click="PasteButton_Click"/>
-                <Button x:Name="RotateCwButton"        Content="↻ 90°"    Padding="8,3" Margin="0,0,12,0"
+                <Button x:Name="RotateCwButton"        Content="↻ 90°"    Padding="8,3" Margin="0,0,4,0"
                         IsEnabled="False" Click="RotateCwButton_Click"/>
+                <Button x:Name="MirrorHButton"         Content="↔ Flip H" Padding="8,3" Margin="0,0,4,0"
+                        IsEnabled="False" Click="MirrorHButton_Click"/>
+                <Button x:Name="MirrorVButton"         Content="↕ Flip V" Padding="8,3" Margin="0,0,12,0"
+                        IsEnabled="False" Click="MirrorVButton_Click"/>
                 <Separator Margin="0,0,8,0"/>
                 <TextBlock x:Name="ToolHintText" VerticalAlignment="Center" FontStyle="Italic" Foreground="#555"
                            Text="Draw: drag between holes to stitch.  Segment: auto-splits at crossed holes.  Freeform: drag across holes to draw continuously.  Select: rubber-band."/>

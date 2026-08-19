@@ -828,6 +828,16 @@ public partial class MainWindow : Window
                 RotateSelection(e.KeyboardDevice.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Shift) ? 3 : 1);
                 e.Handled = true;
             }
+            else if (e.Key == System.Windows.Input.Key.H && _selectedKeys.Count > 0)
+            {
+                MirrorSelection(horizontal: true);
+                e.Handled = true;
+            }
+            else if (e.Key == System.Windows.Input.Key.V && _selectedKeys.Count > 0)
+            {
+                MirrorSelection(horizontal: false);
+                e.Handled = true;
+            }
         }
     }
 
@@ -977,6 +987,8 @@ public partial class MainWindow : Window
         if (DeleteSelectionButton  != null) DeleteSelectionButton.IsEnabled  = hasSelection;
         if (CopySelectionButton    != null) CopySelectionButton.IsEnabled    = hasSelection;
         if (RotateCwButton         != null) RotateCwButton.IsEnabled         = hasSelection;
+        if (MirrorHButton          != null) MirrorHButton.IsEnabled          = hasSelection;
+        if (MirrorVButton          != null) MirrorVButton.IsEnabled          = hasSelection;
         if (PasteButton            != null) PasteButton.IsEnabled            = _isSelectMode && _clipboard != null;
     }
 
@@ -987,6 +999,8 @@ public partial class MainWindow : Window
     private void CopySelectionButton_Click(object sender, RoutedEventArgs e) => CopySelection();
     private void PasteButton_Click(object sender, RoutedEventArgs e) => PasteSelection();
     private void RotateCwButton_Click(object sender, RoutedEventArgs e) => RotateSelection(1);
+    private void MirrorHButton_Click(object sender, RoutedEventArgs e) => MirrorSelection(horizontal: true);
+    private void MirrorVButton_Click(object sender, RoutedEventArgs e) => MirrorSelection(horizontal: false);
     private void CopyCommand_CanExecute(object sender, System.Windows.Input.CanExecuteRoutedEventArgs e)
         => e.CanExecute = _isSelectMode && _selectedKeys.Count > 0;
     private void CopyCommand_Executed(object sender, System.Windows.Input.ExecutedRoutedEventArgs e) => CopySelection();
@@ -1230,6 +1244,79 @@ public partial class MainWindow : Window
         double x = p.X - center.X, y = p.Y - center.Y;
         for (int i = 0; i < quarterTurns; i++) { double nx = y; double ny = -x; x = nx; y = ny; } // 90° CW
         return new Point(center.X + x, center.Y + y);
+    }
+
+    private void MirrorSelection(bool horizontal)
+    {
+        if (_selectedKeys.Count == 0) return;
+
+        var bounds = GetSelectionBounds();
+        var centerPx = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
+        var latBounds = _lattice.ComputeBounds();
+
+        var mapping = new Dictionary<HoleIndex, HoleIndex>();
+        foreach (var key in _selectedKeys)
+        {
+            if (!_lines.TryGetValue(key, out var line)) continue;
+            foreach (var hole in new[] { line.A, line.B })
+            {
+                if (mapping.ContainsKey(hole)) continue;
+                var p = _lattice.Position(hole);
+                // Flip X for horizontal mirror, flip Y for vertical mirror
+                var mirrored = horizontal
+                    ? new Point(2 * centerPx.X - p.X, p.Y)
+                    : new Point(p.X, 2 * centerPx.Y - p.Y);
+                var clamped = new Point(Math.Clamp(mirrored.X, latBounds.Left, latBounds.Right),
+                                        Math.Clamp(mirrored.Y, latBounds.Top, latBounds.Bottom));
+                _lattice.TryFindNearestHole(clamped, double.MaxValue, out var snapped);
+                mapping[hole] = snapped;
+            }
+        }
+
+        var moves = _selectedKeys
+            .Where(k => _lines.ContainsKey(k))
+            .Select(k => { var t = _lines[k];
+                return (OldA: t.A, OldB: t.B, Color: t.Color,
+                        NewA: mapping.GetValueOrDefault(t.A, t.A),
+                        NewB: mapping.GetValueOrDefault(t.B, t.B)); })
+            .Where(m => m.NewA != m.NewB) // skip degenerate after snap
+            .ToList();
+        if (moves.Count == 0) return;
+
+        void Do()
+        {
+            _suppressHoleFillRedraw = true;
+            try
+            {
+                foreach (var m in moves) RemoveThreadInternal(ThreadLine.Key(m.OldA, m.OldB));
+                foreach (var m in moves) AddThreadInternal(m.NewA, m.NewB, m.Color);
+            }
+            finally { _suppressHoleFillRedraw = false; RedrawAllHoleFills(); }
+            _selectedKeys.Clear();
+            foreach (var m in moves) _selectedKeys.Add(ThreadLine.Key(m.NewA, m.NewB));
+            UpdateSelectionVisuals();
+            UpdateLegend();
+            AutoSave();
+        }
+        void Undo()
+        {
+            _suppressHoleFillRedraw = true;
+            try
+            {
+                foreach (var m in moves) RemoveThreadInternal(ThreadLine.Key(m.NewA, m.NewB));
+                foreach (var m in moves) AddThreadInternal(m.OldA, m.OldB, m.Color);
+            }
+            finally { _suppressHoleFillRedraw = false; RedrawAllHoleFills(); }
+            _selectedKeys.Clear();
+            foreach (var m in moves) _selectedKeys.Add(ThreadLine.Key(m.OldA, m.OldB));
+            UpdateSelectionVisuals();
+            UpdateLegend();
+            AutoSave();
+        }
+
+        Do();
+        PushUndo(undo: Undo, redo: Do);
+        SetStatus($"Mirrored {(horizontal ? "horizontally" : "vertically")}. Ctrl+Z to undo.");
     }
 
     // ======================================================================
