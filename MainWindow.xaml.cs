@@ -178,6 +178,72 @@ public partial class MainWindow : Window
         SetCurrentColor(_palette[0]);
         RegenerateLattice(30, 60, 24, keepExistingLines: false);
         Loaded += (_, _) => { FitToView(); TryRestoreLastSession(); };
+        Loaded += (_, _) => { ShowPostUpdateNoticeIfAny(); _ = SilentCheckForUpdatesAsync(); };
+    }
+
+    // ======================================================================
+    //  Self-update (see UpdateService.cs)
+    // ======================================================================
+
+    private static Version CurrentAppVersion =>
+        System.Reflection.Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0, 0);
+
+    /// <summary>After the updater relaunches us, shows what changed since the version we replaced.</summary>
+    private void ShowPostUpdateNoticeIfAny()
+    {
+        var changelogArg = Environment.GetCommandLineArgs()
+            .FirstOrDefault(a => a.StartsWith("--changelog=", StringComparison.OrdinalIgnoreCase));
+        if (changelogArg is null) return;
+
+        var changelogPath = changelogArg["--changelog=".Length..].Trim('"');
+        if (!File.Exists(changelogPath)) return;
+
+        var text = File.ReadAllText(changelogPath);
+        MessageBox.Show(this, $"Updated to v{CurrentAppVersion} — what's new:\n\n{text}",
+            "Embroidery Designer updated", MessageBoxButton.OK, MessageBoxImage.Information);
+        try { File.Delete(changelogPath); } catch { /* best effort */ }
+    }
+
+    /// <summary>Runs at every startup: quietly checks for a newer release and self-updates in the background.</summary>
+    private async System.Threading.Tasks.Task SilentCheckForUpdatesAsync()
+    {
+        try
+        {
+            var (latest, changelog, assetUrl) = await UpdateService.CheckForUpdateAsync(CurrentAppVersion);
+            if (latest is null || assetUrl is null) return;
+
+            var newExePath = await UpdateService.DownloadUpdateAsync(assetUrl);
+            UpdateService.ApplyUpdateAndRestart(newExePath, changelog, latest);
+        }
+        catch
+        {
+            // No network / GitHub unreachable / rate-limited: fail silently, app stays usable offline.
+        }
+    }
+
+    private async void CheckForUpdatesButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var (latest, changelog, assetUrl) = await UpdateService.CheckForUpdateAsync(CurrentAppVersion);
+            if (latest is null || assetUrl is null)
+            {
+                MessageBox.Show(this, $"You're on the latest version (v{CurrentAppVersion}).",
+                    "Check for Updates", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            MessageBox.Show(this, $"Version {latest} is available and will be installed now.\n\nWhat's new:\n\n{changelog}",
+                "Update found", MessageBoxButton.OK, MessageBoxImage.Information);
+
+            var newExePath = await UpdateService.DownloadUpdateAsync(assetUrl);
+            UpdateService.ApplyUpdateAndRestart(newExePath, changelog, latest);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"Couldn't check for updates:\n{ex.Message}",
+                "Check for Updates", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     // ======================================================================

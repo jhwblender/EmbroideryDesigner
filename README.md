@@ -66,6 +66,17 @@ The resulting `EmbroideryDesigner.exe` will be under
 `bin\Release\net8.0-windows\win-x64\publish\`. Copy that one file anywhere on
 a Windows machine and run it directly.
 
+## Self-updating
+
+Every push to `master` triggers a GitHub Actions workflow
+(`.github/workflows/release.yml`) that builds the self-contained exe, tags it
+`vX.Y.Z` (patch auto-incremented), and publishes it as a GitHub Release with
+auto-generated notes. The running app checks that repo's releases on every
+startup and via **Help → Check for Updates...**; if a newer version exists it
+downloads it, replaces its own exe, relaunches, and shows what changed. No
+installer or admin rights needed — just run the published `.exe` from
+anywhere writable.
+
 ## Building the installer
 
 An Inno Setup script at `installer\EmbroideryDesigner.iss` produces a single

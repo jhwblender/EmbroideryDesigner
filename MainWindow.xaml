@@ -40,6 +40,9 @@
                 <MenuItem Header="_Background Color..." Click="BackgroundColorButton_Click"/>
                 <MenuItem Header="_Hole Outline Color..." Click="HoleOutlineColorButton_Click"/>
             </MenuItem>
+            <MenuItem Header="_Help">
+                <MenuItem Header="Check for _Updates..." Click="CheckForUpdatesButton_Click"/>
+            </MenuItem>
         </Menu>
 
         <!-- ===================== GRID / HOLE SETTINGS ===================== -->

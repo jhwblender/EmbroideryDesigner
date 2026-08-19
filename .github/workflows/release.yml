@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine next version
+        id: version
+        shell: bash
+        run: |
+          git fetch --tags
+          latest_tag=$(git tag --list 'v*.*.*' | sort -V | tail -n1)
+          if [ -z "$latest_tag" ]; then
+            next="1.0.0"
+          else
+            ver="${latest_tag#v}"
+            IFS='.' read -r major minor patch <<< "$ver"
+            next="$major.$minor.$((patch+1))"
+          fi
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "tag=v$next" >> "$GITHUB_OUTPUT"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Publish self-contained exe
+        run: >
+          dotnet publish EmbroideryDesigner.csproj -c Release -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:Version=${{ steps.version.outputs.version }}
+          -o publish
+
+      - name: Tag release commit
+        shell: bash
+        run: |
+          git tag ${{ steps.version.outputs.tag }}
+          git push origin ${{ steps.version.outputs.tag }}
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create ${{ steps.version.outputs.tag }} \
+            publish/EmbroideryDesigner.exe \
+            --title ${{ steps.version.outputs.tag }} \
+            --generate-notes
